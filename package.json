@@ -2,8 +2,8 @@
   "name": "thorvg-viewer",
   "displayName": "ThorVG Viewer",
   "description": "View and preview Lottie animations and SVG files with ThorVG rendering engine",
-  "version": "0.0.1",
-  "publisher": "Nor-s",
+  "version": "0.0.3",
+  "publisher": "Nors",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",

@@ -21,7 +21,7 @@ export class ThorVGViewerPanel {
         });
 
         // Set the webview's initial html content
-        this._update();
+        void this._update();
 
         // Listen for when the panel is disposed
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
@@ -469,290 +469,49 @@ export class ThorVGViewerPanel {
         }
     }
 
-    private _update() {
+    private async _update(): Promise<void> {
         const webview = this._panel.webview;
-        this._panel.webview.html = this._getHtmlForWebview(webview);
+        try {
+            this._panel.webview.html = await this._getHtmlForWebview(webview);
+        } catch (error) {
+            console.error('ThorVG Viewer: Failed to load webview HTML', error);
+            this._panel.webview.html = '<!DOCTYPE html><html><body><h1>ThorVG Viewer</h1><p>Failed to load webview content.</p></body></html>';
+        }
     }
 
-    private _getHtmlForWebview(webview: vscode.Webview): string {
+    private async _getHtmlForWebview(webview: vscode.Webview): Promise<string> {
         // Get resource URIs for ThorVG Viewer assets (from thorvg-viewer submodule)
-        const lottiePlayerUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'lottie-player.js')
+        const thorvgViewerUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer')
         );
-        const mainJsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'main.js')
-        );
-        const styleUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'style.css')
-        );
-        const faviconUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'favicon.svg')
-        );
-
-        // Icon URIs (from thorvg-viewer submodule)
-        const statsIconUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'icon', 'stats.svg')
-        );
-        const darkIconUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'icon', 'dark.svg')
-        );
-        const historyIconUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'icon', 'history.svg')
-        );
-        const closeIconUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'icon', 'close.svg')
-        );
-
-        // WASM file URI (from thorvg-viewer submodule)
-        const wasmUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'thorvg.wasm')
-        );
-
-        // Custom files from media directory
         const bridgeJsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'media', 'vscode-bridge.js')
         );
+        const indexHtmlPath = vscode.Uri.joinPath(this._extensionUri, 'thorvg-viewer', 'index.html');
+        const htmlBytes = await vscode.workspace.fs.readFile(indexHtmlPath);
+        let html = new TextDecoder('utf-8').decode(htmlBytes);
 
-        // Stats.js URI (from media directory)
-        const statsJsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'media', 'stats.min.js')
+        const baseUri = `${thorvgViewerUri.toString()}/`;
+        const csp = [
+            "default-src 'none';",
+            `style-src ${webview.cspSource} 'unsafe-inline' https:;`,
+            `font-src ${webview.cspSource} https:;`,
+            `script-src ${webview.cspSource} 'unsafe-eval' 'unsafe-inline' https://mrdoob.github.io;`,
+            `img-src ${webview.cspSource} data: blob: https:;`,
+            `connect-src ${webview.cspSource} https:;`
+        ].join(' ');
+
+        const headInjection = `
+    <base href="${baseUri}">
+    <meta http-equiv="Content-Security-Policy" content="${csp}">`;
+
+        html = html.replace('<head>', `<head>${headInjection}`);
+        html = html.replace(
+            '</body>',
+            `    <script type="text/javascript" src="${bridgeJsUri}"></script>
+</body>`
         );
 
-        // Override CSS for fixing z-index issues
-        const overrideCssUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this._extensionUri, 'media', 'thorvg-viewer-override.css')
-        );
-
-        // Return the full HTML content with CSP that allows external fonts
-        return `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8" />
-    <title>ThorVG Viewer | Thor Vector Graphics</title>
-    <meta name="description" content="ThorVG Viewer Application">
-    <meta http-equiv="Content-Security-Policy" content="
-        default-src 'none';
-        style-src ${webview.cspSource} 'unsafe-inline';
-        font-src ${webview.cspSource};
-        script-src ${webview.cspSource} 'unsafe-eval' 'unsafe-inline';
-        img-src ${webview.cspSource} data:;
-        connect-src ${webview.cspSource};
-    ">
-
-    <link rel="icon" type="image/svg+xml" href="${faviconUri}">
-    <link rel="stylesheet" href="${styleUri}">
-    <link rel="stylesheet" href="${overrideCssUri}">
-
-    <script>
-        // Set WASM URL for ThorVG before loading lottie-player
-        window.THORVG_WASM_URL = '${wasmUri}';
-        // Set Stats.js URL for vscode-bridge
-        window.STATS_JS_URL = '${statsJsUri}';
-    </script>
-    <script src="${lottiePlayerUri}"></script>
-
-    <style>
-        /* Override icon paths for VSCode webview */
-        .ctrl-button.stats img { content: url('${statsIconUri}'); }
-        .ctrl-button.dark img { content: url('${darkIconUri}'); }
-        .ctrl-button.history img { content: url('${historyIconUri}'); }
-        .ctrl-button.close img { content: url('${closeIconUri}'); }
-    </style>
-</head>
-<body class="">
-    <div class="root-container">
-        <div class="preview">
-            <button id="drawer-toggle" class="button drawer-toggle"></button>
-            <div id="image-area">
-                <div id="image-placeholder">
-                    <p>Drag and drop a file here or click to browse<br/>(.svg, lottie: .json/.lot)</p>
-                </div>
-                <input id="image-file-selector" type="file" accept=".svg,.lot,.json,.jpg,.png" multiple>
-            </div>
-            <div id="console-area" class=""></div>
-            <div class="info-area"><p id="version">ThorVG v1.0.0-pre31 · Software</p></div>
-            <div class="actions">
-                <button title="Stats Mode" class="button button-stats"></button>
-                <button title="Dark Mode" class="button button-dark"></button>
-                <button title="History" class="button button-history" id="nav-history"></button>
-                <label id="nav-stats-mode" class="toggle"><input type="checkbox"></label>
-                <label id="nav-dark-mode" class="toggle"><input type="checkbox"></label>
-            </div>
-        </div>
-        <aside class="drawer">
-            <div class="controls">
-                <div class="section-controls">
-                    <div class="ctrl-top-menu">
-                        <div class="ctrl-button-set">
-                        <button class="ctrl-button stats">
-                        <img src="${statsIconUri}" />
-                        </button>
-                        <button class="ctrl-button dark">
-                        <img src="${darkIconUri}" />
-                        </button>
-                        <button class="ctrl-button history">
-                        <img src="${historyIconUri}" />
-                        </button>
-                        </div>
-                        <button class="ctrl-button close">
-                        <img src="${closeIconUri}" />
-                        </button>
-                    </div>
-                    <div class="control-item">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">Canvas</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-171" class="expand-button" aria-label="Toggle Canvas section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div role="region" class="inner-container column">
-                            <h4 class="ctrl-description" id="zoom-value">800 X 800</h4>
-                            <div id="zoom-slider-container">
-                                <input id="zoom-slider" type="range" min="0" max="300" value="100" disabled />
-                            </div>
-                        </div>
-                    </div>
-                    <div class="control-item">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">Progress</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-172" class="expand-button" aria-label="Toggle Progress section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div role="region" class="inner-container column">
-                            <h4 class="ctrl-description" id="progress-value">0 / 0</h4>
-                            <div id="progress-slider-container">
-                                <input id="progress-slider" type="range" min="0" max="100" value="0" disabled />
-                            </div>
-                            <div class="progress-button-container">
-                                <div class="progress-button" id="progress-play">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512">
-                                        <path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80L0 432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/>
-                                    </svg>
-                                </div>
-                                <div class="progress-button" id="progress-pause">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512">
-                                        <path d="M48 64C21.5 64 0 85.5 0 112L0 400c0 26.5 21.5 48 48 48l32 0c26.5 0 48-21.5 48-48l0-288c0-26.5-21.5-48-48-48L48 64zm192 0c-26.5 0-48 21.5-48 48l0 288c0 26.5 21.5 48 48 48l32 0c26.5 0 48-21.5 48-48l0-288c0-26.5-21.5-48-48-48l-32 0z"/>
-                                    </svg>
-                                </div>
-                                <div class="progress-button" id="progress-stop">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512">
-                                        <path d="M0 128C0 92.7 28.7 64 64 64H320c35.3 0 64 28.7 64 64V384c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V128z"/>
-                                    </svg>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="control-item">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">Render Backend</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-173" class="expand-button" aria-label="Toggle Render Backend section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div role="region" class="inner-container column">
-                            <div id="renderer-select" class="tab">
-                                <select id="renderer-dropdown">
-                                    <option value="sw">Software</option>
-                                    <option value="gl">WebGL</option>
-                                    <option value="wg">WebGPU</option>
-                                </select>
-                                <svg class="arrow-icon" viewBox="0 0 24 24">
-                                    <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-linejoin="round" stroke-width="0.15em" fill="none" />
-                                </svg>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="control-item">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">Effects Quality</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-174" class="expand-button" aria-label="Toggle Effects Quality section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div role="region" class="inner-container column">
-                            <div id="quality-select" class="tab">
-                                <select id="quality-dropdown">
-                                    <option value="30">Low</option>
-                                    <option value="60">Medium</option>
-                                    <option value="90">High</option>
-                                </select>
-                                <svg class="arrow-icon" viewBox="0 0 24 24">
-                                    <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-linejoin="round" stroke-width="0.15em" fill="none" />
-                                </svg>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="control-item">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">Export</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-174" class="expand-button" aria-label="Toggle Export section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div class="inner-container row">
-                            <button type="button" class="ctrl-button" id="export-png">png</button>
-                            <button type="button" class="ctrl-button" id="export-gif">gif</button>
-                        </div>
-                    </div>
-                    <div class="control-item">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">Details</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-175" class="expand-button" aria-label="Toggle Details section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div role="region" class="inner-container column">
-                            <div id="file-detail">
-                                <div class="placeholder">
-                                    <h4 class="ctrl-description">No file information</h4>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="control-item" style="min-height: 400px;">
-                        <div class="item-expand">
-                            <h2 class="ctrl-title">List Of Files</h2>
-                            <button type="button" aria-expanded="true" aria-controls="accordion-panel-176" class="expand-button" aria-label="Toggle List Of Files section">
-                                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke-width="0.125em" class="expand-icon">
-                                    <path d="M6 9l6 6 6-6"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <div role="region" class="inner-container">
-                            <div id="files-list">
-                                <div class="container"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="section-upload">
-                    <h2 class="ctrl-title">Upload</h2>
-                    <div class="inner-container row">
-                        <input type="file" id="hidden-file-input" accept=".svg, .json, .lot" style="display: none;" />
-                        <button type="button" class="ctrl-button" id="add-file-local">File</button>
-                        <button type="button" class="ctrl-button" id="add-file-url">Url</button>
-                    </div>
-                </div>
-            </div>
-        </aside>
-        <div id="drawer-backdrop" class="drawer-backdrop"></div>
-    </div>
-    <script type="text/javascript" src="${bridgeJsUri}"></script>
-    <script type="text/javascript" src="${mainJsUri}"></script>
-</body>
-</html>`;
+        return html;
     }
 }
