@@ -1,0 +1,42 @@
+.vscode/**
+.vscode-test/**
+src/**
+temp/**
+node_modules/**
+.gitignore
+.yarnrc
+vsc-extension-quickstart.md
+**/tsconfig.json
+**/.eslintrc.json
+**/*.map
+**/*.ts
+
+# Exclude thorvg.test-automation source and dependencies
+thorvg.test-automation/node_modules/**
+thorvg.test-automation/src/**
+thorvg.test-automation/public/**
+thorvg.test-automation/.git/**
+thorvg.test-automation/package*.json
+thorvg.test-automation/tsconfig.json
+thorvg.test-automation/.eslintrc*
+thorvg.test-automation/.prettierrc*
+thorvg.test-automation/README.md
+
+# Keep only the build output
+!thorvg.test-automation/build/**
+
+# Exclude thorvg-viewer source (we only need the built files)
+thorvg-viewer/.git/**
+thorvg-viewer/src/**
+thorvg-viewer/test/**
+thorvg-viewer/inc/**
+thorvg-viewer/docs/**
+thorvg-viewer/.github/**
+thorvg-viewer/*.md
+
+# Development files
+nul
+CLAUDE.md
+.claude/**
+convert-icon.js
+README_ICON.md

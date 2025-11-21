@@ -1,0 +1,78 @@
+{
+  "name": "thorvg-viewer",
+  "displayName": "ThorVG Viewer",
+  "description": "View and preview Lottie animations and SVG files with ThorVG rendering engine",
+  "version": "0.0.1",
+  "publisher": "Nor-s",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nor-s/vscode-ext-lottieViewer.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "lottie",
+    "svg",
+    "animation",
+    "thorvg",
+    "viewer",
+    "preview"
+  ],
+  "activationEvents": [
+    "onCommand:thorvg-viewer.openThorVGViewer",
+    "onCommand:thorvg-viewer.openThorVGViewerWithCurrentFile",
+    "onCommand:thorvg-viewer.openExtensionFolder"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "thorvg-viewer.openThorVGViewer",
+        "title": "ThorVG: Open Viewer"
+      },
+      {
+        "command": "thorvg-viewer.openThorVGViewerWithCurrentFile",
+        "title": "ThorVG: Open Viewer with Current File",
+        "icon": {
+          "light": "./thorvg-viewer/favicon.svg",
+          "dark": "./media/favicon_white.svg"
+        }
+      },
+      {
+        "command": "thorvg-viewer.openExtensionFolder",
+        "title": "ThorVG: Open Extension Folder"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "thorvg-viewer.openThorVGViewerWithCurrentFile",
+          "when": "resourceExtname == .json || resourceExtname == .svg || resourceExtname == .lot || resourceExtname == .png",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "20.x",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}
