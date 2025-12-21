@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+const defaultViewerSize = 256;
+
 export class ThorVGViewerPanel {
     public static currentPanel: ThorVGViewerPanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
@@ -151,6 +153,10 @@ export class ThorVGViewerPanel {
                             this._webviewReadyResolver();
                             this._webviewReadyResolver = undefined;
                         }
+                        void this._panel.webview.postMessage({
+                            command: 'setViewerSize',
+                            size: defaultViewerSize
+                        });
                         return;
                     }
                 }
@@ -161,13 +167,11 @@ export class ThorVGViewerPanel {
     }
 
     public static createOrShow(extensionUri: vscode.Uri) {
-        const column = vscode.window.activeTextEditor
-            ? vscode.window.activeTextEditor.viewColumn
-            : undefined;
+        const targetColumn = vscode.ViewColumn.Beside;
 
         // If we already have a panel, show it
         if (ThorVGViewerPanel.currentPanel) {
-            ThorVGViewerPanel.currentPanel._panel.reveal(column);
+            ThorVGViewerPanel.currentPanel._panel.reveal(targetColumn);
             return;
         }
 
@@ -175,7 +179,7 @@ export class ThorVGViewerPanel {
         const panel = vscode.window.createWebviewPanel(
             'thorvgViewer',
             'ThorVG Viewer',
-            column || vscode.ViewColumn.One,
+            targetColumn,
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
@@ -191,13 +195,11 @@ export class ThorVGViewerPanel {
     }
 
     public static async createOrShowWithCurrentFile(extensionUri: vscode.Uri, resourceUri?: vscode.Uri) {
-        const column = vscode.window.activeTextEditor
-            ? vscode.window.activeTextEditor.viewColumn
-            : undefined;
+        const targetColumn = vscode.ViewColumn.Beside;
 
         // If we already have a panel, show it and load current file
         if (ThorVGViewerPanel.currentPanel) {
-            ThorVGViewerPanel.currentPanel._panel.reveal(column);
+            ThorVGViewerPanel.currentPanel._panel.reveal(targetColumn);
             await ThorVGViewerPanel.currentPanel._loadCurrentFile(resourceUri);
             return;
         }
@@ -206,7 +208,7 @@ export class ThorVGViewerPanel {
         const panel = vscode.window.createWebviewPanel(
             'thorvgViewer',
             'ThorVG Viewer',
-            column || vscode.ViewColumn.One,
+            targetColumn,
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
@@ -228,7 +230,6 @@ export class ThorVGViewerPanel {
         // Listen for document changes
         const documentChangeListener = vscode.workspace.onDidChangeTextDocument(async e => {
             if (this._autoSyncEnabled && this._currentDocument && e.document === this._currentDocument) {
-                // Reload the file when it changes
                 await this._loadDocument(this._currentDocument);
             }
         });
@@ -236,7 +237,7 @@ export class ThorVGViewerPanel {
 
         // Listen for active editor changes
         const editorChangeListener = vscode.window.onDidChangeActiveTextEditor(async editor => {
-            if (this._autoSyncEnabled && editor && this._isSupportedFile(editor.document)) {
+            if (this._autoSyncEnabled && editor && this._isSupportedFile(editor.document) && editor.document !== this._currentDocument) {
                 await this._loadDocument(editor.document);
                 return;
             }
@@ -514,6 +515,7 @@ export class ThorVGViewerPanel {
             if (this._currentResourceUri && this._urisEqual(this._currentResourceUri, fromActiveTab)) {
                 return; // Already showing this file
             }
+            
             await this._loadCurrentFile(fromActiveTab, true);
         }
 

@@ -2,6 +2,30 @@
  * VSCode Webview Bridge Script for ThorVG Viewer
  * This script bridges file operations between VSCode and the ThorVG Viewer
  */
+var isFirstTarget = true;
+
+function applyViewerSize(nextSize) {
+    const parsed = Number(nextSize);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        console.warn('VSCode Bridge: Invalid viewer size:', nextSize);
+        return;
+    }
+    window.size = parsed;
+    if (window.player) {
+        window.resize(window.size, window.size);
+        window.refreshZoomValue();
+    }
+}
+
+function updateRendererSelection(next) {
+  const dropdown = document.getElementById('renderer-dropdown');
+  if (!dropdown) return;
+
+  if (dropdown.value !== next) {
+    dropdown.value = next;
+    dropdown.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
 
 (function() {
     // Get VSCode API
@@ -82,106 +106,6 @@
         }
     }
 
-    // Override loadData function to inject WASM URL and handle file loading
-    let originalLoadData = null;
-
-    // Wait for main.js to load and override loadData
-    function setupLoadDataOverride() {
-        if (typeof window.loadData === 'function' && !originalLoadData) {
-            originalLoadData = window.loadData;
-
-            // Override the default size from main.js
-            window.size = 250;
-
-            window.loadData = function(data, fileExtension) {
-                console.log('VSCode Bridge: Loading file with extension:', fileExtension);
-
-                // Cleanup existing players
-                const existingPlayers = document.querySelectorAll('lottie-player');
-                existingPlayers.forEach(p => {
-                    if (p.destroy) p.destroy();
-                    p.remove();
-                });
-
-                // Create new player and set it globally
-                window.player = document.createElement('lottie-player');
-                window.player.autoPlay = true;
-                window.player.loop = true;
-
-                // Set WASM URL from the global variable
-                if (window.THORVG_WASM_URL) {
-                    window.player.wasmUrl = window.THORVG_WASM_URL;
-                    console.log('VSCode Bridge: WASM URL set to', window.THORVG_WASM_URL);
-                }
-
-                window.player.renderConfig = { renderer: window.renderer || 'sw' };
-
-                // Attach player event listeners BEFORE adding to DOM
-                if (typeof window.attachAllEventListeners === 'function') {
-                    window.attachAllEventListeners();
-                }
-
-                // Attach to DOM
-                const imageArea = document.querySelector('#image-area');
-                if (imageArea) {
-                    imageArea.appendChild(window.player);
-                }
-
-                // Set filename globally
-                window.filedata = data;
-
-                // Add error handler to detect loading failures
-                window.player.addEventListener('error', function(event) {
-                    console.error('VSCode Bridge: Player error event:', event);
-                    vscode.postMessage({
-                        command: 'loadError',
-                        text: 'Failed to load or render file. The file may be corrupted or in an unsupported format.'
-                    });
-                });
-
-                // Load the data
-                setTimeout(async () => {
-                    try {
-                        await window.player.load(data, fileExtension);
-
-                        // Call helper functions if they exist
-                        if (typeof window.resize === 'function') {
-                            window.resize(window.size || 250, window.size || 250);
-                        }
-                        if (typeof window.createTabs === 'function') {
-                            window.createTabs();
-                        }
-                        if (typeof window.showImageCanvas === 'function') {
-                            window.showImageCanvas();
-                        }
-                        if (typeof window.createFilesListTab === 'function') {
-                            window.createFilesListTab();
-                        }
-                        if (typeof window.enableZoomContainer === 'function') {
-                            window.enableZoomContainer();
-                        }
-                        if (typeof window.enableProgressContainer === 'function') {
-                            window.enableProgressContainer();
-                        }
-                        if (typeof window.initQualityValue === 'function') {
-                            window.initQualityValue();
-                        }
-
-                        console.log('VSCode Bridge: File loaded successfully');
-                    } catch (error) {
-                        console.error('VSCode Bridge: Error loading file:', error);
-                        vscode.postMessage({
-                            command: 'loadError',
-                            text: 'Failed to load file: ' + (error.message || error)
-                        });
-                    }
-                }, 100);
-            };
-
-            console.log('VSCode Bridge: loadData override installed');
-        }
-    }
-
     // Process file data
     function processFileData(fileName, fileData) {
         console.log('VSCode Bridge: Processing file:', fileName);
@@ -205,13 +129,6 @@
                 console.error('VSCode Bridge: Failed to parse JSON:', e);
                 return;
             }
-        } else if (isSVG) {
-            // For SVG files, keep as text
-            processedData = fileData;
-        } else if (isPNG) {
-            // For PNG files, data is already in data URL format from extension
-            // Just keep it as is - it will be handled by createFileFromData
-            processedData = fileData;
         } else {
             // For other formats, keep as is
             processedData = fileData;
@@ -386,9 +303,8 @@
 
     // Setup other overrides when DOM is ready
     window.addEventListener('DOMContentLoaded', function() {
-        setupLoadDataOverride();
         setupExportOverrides();
-
+        console.log('VSCode Bridge: Export overrides set up');
         // Notify extension that the webview is ready to receive messages
         vscode.postMessage({ command: 'ready' });
     });
@@ -396,26 +312,26 @@
     // Listen for messages from the extension
     window.addEventListener('message', event => {
         const message = event.data;
+        console.log('VSCode Bridge: Received message', message);
 
         switch (message.command) {
             case 'loadFile':
                 // File selected from VSCode file picker
+                if (isFirstTarget) {
+                    updateRendererSelection('sw');
+                }
                 processFileData(message.fileName, message.fileData);
+                isFirstTarget = false;
                 break;
-
+            case 'setViewerSize':
+                console.log('VSCode Bridge: Setting viewer size to', message.size);
+                applyViewerSize(message.size);
+                break;
             case 'error':
                 console.error('VSCode Bridge Error:', message.text);
                 break;
         }
     });
-
-    // Store original fetch for WASM loading
-    const originalFetch = window.fetch;
-    window.fetch = function(...args) {
-        // Log fetch requests for debugging
-        console.log('Fetch request:', args[0]);
-        return originalFetch.apply(this, args);
-    };
 
     // Helper: ensure we have a mutable files list
     function ensureFilesList() {
@@ -469,6 +385,7 @@
             if (typeof window.createFilesListTab === 'function') {
                 console.log('VSCode Bridge: Calling createFilesListTab');
                 window.createFilesListTab();
+                applyViewerSize(window.size);
             } else {
                 console.warn('VSCode Bridge: createFilesListTab not available');
             }
