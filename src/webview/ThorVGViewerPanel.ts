@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 
 export class ThorVGViewerPanel {
     public static currentPanel: ThorVGViewerPanel | undefined;
@@ -62,7 +61,7 @@ export class ThorVGViewerPanel {
                         if (fileUris && fileUris.length > 0) {
                             // Read each file and send to webview
                             for (const fileUri of fileUris) {
-                                const fileName = fileUri.fsPath.split(/[\\/]/).pop() || 'unknown';
+                                const fileName = this._getFileName(fileUri);
                                 const fileData = await vscode.workspace.fs.readFile(fileUri);
 
                                 // Determine if file is text or binary
@@ -74,11 +73,11 @@ export class ThorVGViewerPanel {
                                     fileContent = new TextDecoder().decode(fileData);
                                 } else if (ext === 'png') {
                                     // PNG file - convert to base64 data URL
-                                    const base64 = Buffer.from(fileData).toString('base64');
+                                    const base64 = this._toBase64(fileData);
                                     fileContent = `data:image/png;base64,${base64}`;
                                 } else {
                                     // Other binary file
-                                    const base64 = Buffer.from(fileData).toString('base64');
+                                    const base64 = this._toBase64(fileData);
                                     fileContent = `data:application/octet-stream;base64,${base64}`;
                                 }
 
@@ -99,11 +98,11 @@ export class ThorVGViewerPanel {
                         const fileTypeUpper = message.fileType.toUpperCase();
 
                         const baseFolderUri = this._currentDocument
-                            ? vscode.Uri.file(path.dirname(this._currentDocument.uri.fsPath))
+                            ? this._getDirUri(this._currentDocument.uri)
                             : vscode.workspace.workspaceFolders?.[0]?.uri;
                         const defaultUri = baseFolderUri
                             ? vscode.Uri.joinPath(baseFolderUri, defaultFileName)
-                            : vscode.Uri.file(defaultFileName);
+                            : undefined;
 
                         const saveUri = await vscode.window.showSaveDialog({
                             defaultUri,
@@ -115,20 +114,20 @@ export class ThorVGViewerPanel {
                         if (saveUri) {
                             try {
                                 // Convert data URL or base64 to buffer
-                                let buffer: Buffer;
+                                let buffer: Uint8Array;
                                 const fileData = message.fileData;
 
                                 if (typeof fileData === 'string') {
                                     // Handle data URL format (data:image/png;base64,...)
                                     if (fileData.startsWith('data:')) {
-                                        const base64Data = fileData.split(',')[1];
-                                        buffer = Buffer.from(base64Data, 'base64');
+                                        const base64Data = fileData.split(',')[1] || '';
+                                        buffer = this._fromBase64(base64Data);
                                     } else {
                                         // Already base64
-                                        buffer = Buffer.from(fileData, 'base64');
+                                        buffer = this._fromBase64(fileData);
                                     }
                                 } else if (fileData instanceof Uint8Array) {
-                                    buffer = Buffer.from(fileData);
+                                    buffer = fileData;
                                 } else {
                                     throw new Error('Unsupported file data format');
                                 }
@@ -357,7 +356,7 @@ export class ThorVGViewerPanel {
     }
 
     private async _loadUri(uri: vscode.Uri) {
-        const fileName = path.basename(uri.fsPath);
+        const fileName = this._getFileName(uri);
         const ext = fileName.split('.').pop()?.toLowerCase();
 
         if (ext === 'json' || ext === 'lot' || ext === 'svg') {
@@ -370,10 +369,10 @@ export class ThorVGViewerPanel {
         const fileData = await vscode.workspace.fs.readFile(uri);
         let fileContent: string;
         if (ext === 'png') {
-            const base64 = Buffer.from(fileData).toString('base64');
+            const base64 = this._toBase64(fileData);
             fileContent = `data:image/png;base64,${base64}`;
         } else {
-            const base64 = Buffer.from(fileData).toString('base64');
+            const base64 = this._toBase64(fileData);
             fileContent = `data:application/octet-stream;base64,${base64}`;
         }
 
@@ -392,7 +391,7 @@ export class ThorVGViewerPanel {
         this._currentDocument = document;
         this._currentResourceUri = document.uri;
 
-        const fileName = document.fileName.split(/[\\/]/).pop() || 'unknown';
+        const fileName = this._getFileName(document.uri);
         const ext = fileName.split('.').pop()?.toLowerCase();
         let fileContent: string;
 
@@ -402,12 +401,12 @@ export class ThorVGViewerPanel {
         } else if (ext === 'png') {
             // Read and encode binary as data URL for webview consumption
             const fileData = await vscode.workspace.fs.readFile(document.uri);
-            const base64 = Buffer.from(fileData).toString('base64');
+            const base64 = this._toBase64(fileData);
             fileContent = `data:image/png;base64,${base64}`;
         } else {
             // Fallback for other binary formats
             const fileData = await vscode.workspace.fs.readFile(document.uri);
-            const base64 = Buffer.from(fileData).toString('base64');
+            const base64 = this._toBase64(fileData);
             fileContent = `data:application/octet-stream;base64,${base64}`;
         }
 
@@ -426,6 +425,74 @@ export class ThorVGViewerPanel {
 
     private _urisEqual(a: vscode.Uri, b: vscode.Uri): boolean {
         return a.toString() === b.toString();
+    }
+
+    private _normalizePath(uri: vscode.Uri): string {
+        const rawPath = uri.path || uri.fsPath || '';
+        return rawPath.replace(/\\/g, '/');
+    }
+
+    private _getFileName(uri: vscode.Uri): string {
+        const normalizedPath = this._normalizePath(uri);
+        const segments = normalizedPath.split('/');
+        return segments[segments.length - 1] || 'unknown';
+    }
+
+    private _getDirUri(uri: vscode.Uri): vscode.Uri {
+        const normalizedPath = this._normalizePath(uri);
+        const lastSlash = normalizedPath.lastIndexOf('/');
+        const dirPath = lastSlash > 0 ? normalizedPath.slice(0, lastSlash) : '/';
+        return uri.with({ path: dirPath });
+    }
+
+    private _toBase64(data: Uint8Array): string {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        let output = '';
+
+        for (let i = 0; i < data.length; i += 3) {
+            const byte1 = data[i];
+            const byte2 = i + 1 < data.length ? data[i + 1] : 0;
+            const byte3 = i + 2 < data.length ? data[i + 2] : 0;
+
+            const enc1 = byte1 >> 2;
+            const enc2 = ((byte1 & 3) << 4) | (byte2 >> 4);
+            const enc3 = ((byte2 & 15) << 2) | (byte3 >> 6);
+            const enc4 = byte3 & 63;
+
+            output += chars.charAt(enc1);
+            output += chars.charAt(enc2);
+            output += i + 1 < data.length ? chars.charAt(enc3) : '=';
+            output += i + 2 < data.length ? chars.charAt(enc4) : '=';
+        }
+
+        return output;
+    }
+
+    private _fromBase64(base64: string): Uint8Array {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+        const clean = base64.replace(/[^A-Za-z0-9+/=]/g, '');
+        const output: number[] = [];
+
+        for (let i = 0; i < clean.length; i += 4) {
+            const enc1 = chars.indexOf(clean.charAt(i));
+            const enc2 = chars.indexOf(clean.charAt(i + 1));
+            const enc3 = chars.indexOf(clean.charAt(i + 2));
+            const enc4 = chars.indexOf(clean.charAt(i + 3));
+
+            const byte1 = (enc1 << 2) | (enc2 >> 4);
+            const byte2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+            const byte3 = ((enc3 & 3) << 6) | enc4;
+
+            output.push(byte1);
+            if (enc3 !== 64) {
+                output.push(byte2);
+            }
+            if (enc4 !== 64) {
+                output.push(byte3);
+            }
+        }
+
+        return new Uint8Array(output);
     }
 
     private async _syncActiveResourceIfSupported() {

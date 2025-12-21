@@ -30,6 +30,11 @@
     "onCommand:thorvg-viewer.openExtensionFolder"
   ],
   "main": "./out/extension.js",
+  "browser": "./out/web/extension.js",
+  "extensionKind": [
+    "ui",
+    "web"
+  ],
   "contributes": {
     "commands": [
       {
@@ -60,18 +65,21 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "tsc -p ./",
+    "vscode:prepublish": "npm run compile && npm run compile:web",
     "compile": "tsc -p ./",
+    "compile:web": "esbuild src/extension.ts --bundle --format=cjs --platform=browser --target=es2020 --outfile=out/web/extension.js --external:vscode --sourcemap",
     "watch": "tsc -watch -p ./",
+    "watch:web": "esbuild src/extension.ts --bundle --format=cjs --platform=browser --target=es2020 --outfile=out/web/extension.js --external:vscode --sourcemap --watch",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "20.x",
+    "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "esbuild": "^0.27.2",
     "eslint": "^8.56.0",
     "typescript": "^5.3.3"
   }
