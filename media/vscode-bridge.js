@@ -23,7 +23,8 @@ function updateRendererSelection(next) {
 
   if (dropdown.value !== next) {
     dropdown.value = next;
-    dropdown.dispatchEvent(new Event('change', { bubbles: true }));
+    dropdown.dispatchEvent(new Event('change'));
+    window.onRendererMode({ target: { value: next } });
   }
 }
 
